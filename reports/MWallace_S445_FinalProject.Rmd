@@ -1,0 +1,427 @@
+---
+title: 'MVP - Who has the most Hart?'
+author: "Miranda Wallace"
+date: "March 26th, 2023"
+output: html_document
+abstract: "The Hart Memorial Trophy is awarded to the player that is considered to be the most valuable player (MVP) in the National Hockey League (NHL) throughout the regular season. The decision of who is awarded this title is determined by a poll of the Professional Hockey Writers Association (PHWA) in all NHL cities. There is no strict definition of what makes a player most valuable, and so this analysis aims to predict the recipient of the Hart Memorial Trophy using only players' stats. To execute this idea, four regression techniques, linear, ridge, lasso, and subset selction, were used. Each of the four models correclty predicted the 2018-19 season award winner, Nikita Kucherov. Unexpected results from the ridge regression and lasso model lead to the decision to broaden the objective to see which model could correctly include the most players found in the true top 10 in the predicted top 10. Overall, subset selection was deemed to be the best model as it produced the smallest test mean squared error (MSE) and included the most true players in the predicted top 10. Limitations as well as ideas to possibly improve this analysis were also explored."
+---
+
+```{r setup, include=FALSE}
+# setting some default chunk options for a final project
+# figures will be centered
+# code will not be displayed
+# messages are suppressed
+# warnings are suppressed
+knitr::opts_chunk$set(fig.align = "center", echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+```{r load-packages}
+# you can use this chunk to load all the packages that you will use for your analysis
+library(ggplot2)
+library(kableExtra)
+library(readxl)
+library(glmnet)
+library(leaps)
+library(tidyverse)
+library(caret)
+library(GGally)
+library(writexl)
+```
+
+
+## Introduction 
+
+  The Hart Memorial Trophy is an annual award presented to the player who is considered to be the most valuable player (MVP) in the National Hockey League (NHL) throughout the regular season (HHOF - Hart Memorial Trophy, n.d.). The regular season consists of 82 games in total, 41 of which will take place on home ice and 41 away away (Every Number Has a Story, Some That Will Surprise You, n.d.).  The Hart Memorial Trophy was first presented by the NHL in 1960 after the original Hart Trophy, donated to the NHL by Dr. David Hart in 1923, was retired to the hockey hall of fame  (NHL Hart Memorial Trophy Winners, n.d.). 
+
+  The winner of the trophy is decided through a poll of the Professional Hockey Writer's Association (PHWA). The PHWA was established in 1967 and currently has approximately 300 members in NHL who write about the sport for newspapers, magazines, and online media. The members of the PHWA vote on seven end-of-season NHL awards, this includes: Hart Memorial Trophy, Calder Trophy, Selke Trophy, Lady Byng Trophy, Norris Trophy, Masterton Trophy, and Conn Smythe Trophy, in addition to the NHL All-Star and All-Rookie teams  (About the PHWA – Professional Hockey Writers Association, n.d.). 
+
+  In 2022, the PHWA distributed out ballots to a total of 200 voters, 180 members and 20 invited international broadcasters for this season and the voters were tasked at ranking players from 1st place - 5th place (PHWA Publishes 2022 NHL Awards Ballots – Professional Hockey Writers Association, 2022). The total number of appointed voters differs each year meaning the number of valid ballots change. Invalid ballots or ballots not returned in time are not taken into consideration when it's time to count the votes for the candidates (PHWA Publishes 2022 NHL Awards Ballots – Professional Hockey Writers Association, 2022). 
+
+  The objective of this analysis is to create a model that can correctly predict past season Hart Memorial Trophy recipients. As mentioned above, this trophy is awarded to the most valuable player of the regular season, however there is no strict criteria that MVP is based on. Striving to create a model strictly using reported player statistics, i.e., objective data, to predict a subjective title is a difficult task, however if successful, could be quite useful. 
+
+  Plenty of hockey fans place bets on a plethora of different outcomes, such as a player's performance in a game, the team most likely to win a game, which team is going to score the first goal or win the first period. Fans also place bets on who will win the big awards presented at the end of the regular season and the ability to provide supportive evidence created using statistics could aid a bettor's decision on whether or not to risk their money. 
+
+
+## Data Description 
+
+  All data used to create the models was sourced from Hockey Reference, a website strictly dedicated to hockey statistics. Articles which speculated the most likely player to win the Hart Memorial Trophy for the 2022-23 season aided in the transformation of the data. Two different regular seasons were used to create the models analyzed, 2018-19 and 2021-22 season. The following tables were used to create the shrink the corresponding years' data set: NHL Skater Statistics, NHL Miscellaneous Statistics and NHL Hart Memorial Trophy Winners - NHL Awards Voting (NHL Stats, History, Scores, Standings, Playoffs, Schedule & Records | Hockey-Reference.Com, n.d.). The three data tables were combined once the variables that were believed to be insignificant were removed from each, this will be discussed in more detail later.
+
+  Articles discussing the current season's most likely candidate as well as past winners frequently commented on the player's number of games played, number of goals and assists, and their total number of points. Projections about where the top candidate's stats will be are seem to also be heavily factored (Fitzsimmons, n.d.).  After examining the variables in the tables of data, variables mentioned in articles were kept as well as other variables I thought would impact a player's likelihood of earning the title of MVP. The first five variables defined below were used mainly for identification, while the others were used in the models.
+
+Definition of the variables:
+
+-   *Rk*: the player's were ordered in alphabetical order in the table and *Rk* indicated what place they were in in the list 
+-   *Player*: the hockey player's name
+-   *Age*: the player's age
+-   *Tm*: the team the player is on
+-   *Pos*: the player's position - this could be either C (center), RW (right wing), LW (left wing), or D (defense)
+-   *GP*: the number of games the player was on the ice
+-   *G*: the number of goals the player has made 
+-   *A*: the number of goals the player has assisted, an assist is awarded to the player or players (maximum of two) who touched the puck prior to the player who scores the goal
+-   *PTS*: the number of points awarded to the player, this is equal to the summation of a player's total number of goals and assists
+-   *plus_minus*: this rating is calculated by giving the player one point for each even-strength or short-handed goal their team scores while the player is on the ice while subtracting one point for each even-strength or short-handed goal the opposing team scores while the player is on the ice
+-   *PIM*: the total number of penalty minutes the player has accumulated
+-   *PS*: Point Share - an estimate of the number of points contributed by a player
+-   *TOI*: the time on ice, in minutes, a player has accumulated 
+-   *OPS* Offensive Point Share – an estimate of the # of points contributed by a player due to their offense
+-   *DPS*: Defensive Point Share – an estimate of the # of points contributed by a player due to their defense
+-   *vote_percent*: the percentage of votes a player has received in favour of winning the Hart Memorial Trophy
+
+  As mentioned, three tables were used to create the one data set for each respective season being used to investigate the objective. After reading the articles, the number of variables in the NHL Skaters Statistics data was able to shrink from 28 variables to 11. Five of the kept variables were used solely for identifying the player, while the remaining 7 were anticipated to be used as predictor variables in the model. 
+
+  It is important to mention that *PTS*, total number of points, was not included in the models as it is a linear combination of *G*, the number of goals the player has scored, and *A*, the number of goals the player has assisted. It was left in the entirety of the data because it was commonly mentioned throughout articles, however it was thought that one predictor may have a greater influence over the other. 
+
+  The data kept from the NHL Hart Memorial Trophy Winners - NHL Awards Voting was the player's name and the voting percentage they received in favour of them winning the award. Lastly, the data kept from the NHL Miscellaneous Skater's Statistics was the player's name and each player's *OPS* and *DPS*, these two stats were not mentioned when researching the variables to be significant factors in the decision making process, however I believed they must have some impact because it's not only important for a player to be able to play offensively but also defensively. 
+
+  Once each table had only the significant variables left, the duplicate observations were removed and then they were combined. Next,it was decided that a player had to meet a certain constraint in order to be considered eligible because a small amount of players receive votes for the award, so the data would be very unbalanced. These constraints were *GP* >= 50 and *TOI*/*GP* >= 15. Once the data was condensed, the 2018-19 season had 358 eligible players while the 2021-22 season had 379 eligible players. These lead to the decision of the training set being the 2021-22 season as it had a greater number of observations than the 2018-19 season, which was deemed the test set. 
+
+```{r}
+setwd("/Users/mirandawallace/Desktop/4th YEAR/STATS 445/S445 RMarkdown")
+
+# LOADING ER ALL UP 
+season18.19 <- read_excel("S445_finalProject_filteredData2018-19.xlsx")
+View(season18.19)
+
+season21.22 <- read_excel("S445_finalProject_filteredData2021-22.xlsx")
+View(season21.22)
+```
+
+#### Summary of 2018-19 Season Data
+```{r}
+tidy_totals.18_19 <- as_tibble(season18.19)
+kable_styling(kbl(tidy_totals.18_19 %>% dplyr::select(GP, G, A, PTS, plus_minus, PS, TOI, OPS, DPS, vote_percent) %>% summary(), caption = "Table 1: Summary of 2018-19 season Data."))
+```
+
+```{r, out.width = "500px", fig.cap = "Figure 1: Pairs plot of 2018-19 season data."}
+ggpairs(data = season18.19[6:16], upper = "blank")+
+  theme_bw() 
+```
+
+#### Summary of 2021-22 Season Data
+```{r}
+tidy_totals.21_22 <- as_tibble(season21.22)
+kable_styling(kbl(tidy_totals.21_22 %>% dplyr::select(GP, G, A, PTS, plus_minus, PS, TOI, OPS, DPS, vote_percent) %>% summary(), caption = "Table 2: Summary of 2021-22 season Data."))
+```
+
+ 
+```{r, out.width = "500px", fig.cap = "Figure 2: Pairs plot of 2021-22 season data."}
+ggpairs(data = season21.22[6:16], upper = "blank")+
+  theme_bw() 
+```
+
+## Methods and Results
+  To employ the four techniques used in this analysis, a seed was set to ensure reproducibility and the training and testing set were defined as such for easier identification throughout the duration of the methods. 
+
+```{r}
+set.seed(16)
+
+train = season21.22
+test = season18.19
+```
+
+
+#### Linear Regression
+  From the pairs plot, linear relationships can be seen in some of the scatter plots, thus a linear regression approach was taken. Linear regression stems from the method of least squares. This approach can be thought of as choosing $\beta_0, \beta_1, \beta_2, ..., \beta_p$ to minimize the sum of residual squares (RSS) where $$RSS = \sum_{i=1}^n(Y_i - \hat{Y_i})^2 = \sum_{i=1}^n(Y_i - \hat{\beta}_0 - \hat{\beta}_1X_{i1} - ... - \hat{\beta}_pX_{ip})^2$$. A linear model was fit to the training data which was the filtered 2021-22 season data that contained 379 observations. To validate the model, the testing data, i.e., the filtered 2018-19 season data, was used in place of the training data in hopes that the correct award recipient would be predicted. 
+  
+The following output corresponds to the coefficients of each predictor variable in the linear regression.
+```{r}
+fit <- lm(vote_percent ~ ., data = train[,c(6:8, 10:16)])
+summary(fit)
+
+linear_model.fit = lm(vote_percent ~., data = train[,c(6:8, 10:16)])
+
+linear_model.pred = predict(linear_model.fit, test[,c(6:8, 10:16)])
+test$linear <- linear_model.pred
+
+arranged.linear.pred <- arrange(test, desc(linear))
+```
+
+
+The test mean squared error (MSE) is stated in the following output. 
+```{r}
+mean((test$vote_percent - linear_model.pred)^2)
+```
+
+
+```{r}
+kable_styling(kbl(head(arranged.linear.pred), caption = "Table 3: Sample of the predicted order of players and their respective stats after linear regression."))
+```
+
+
+  Key results from the linear regression model are that it produced a test MSE of 33.08424 and correctly identified the player who was awarded the Hart Memorial Trophy for the 2018-19 season, which was Nikita Kucherov. 
+
+
+  While the model did correctly predict the award winner, the placings of the other players is more flawed. To see if the placings could be improved to better predict the true placings of the players I decided to continue with a linear regression approach as the first model was quite promising, except the following models had used refining techniques. 
+
+
+#### Ridge Regression 
+  The second technique employed was ridge regression. This is a shrinkage method for linear regression where it applies a shrinkage penalty to our definition of least squares. Ridge regression coefficients, $\hat{\beta}^R$, minimize $$\sum_{i=1}^n(Y_i - \beta_0 - \sum_{j=1}^p\beta_jX_{ij})^2 + \lambda\sum_{j=1}^p\beta_j^2$$ 
+where the first portion of the equation is our definition of least squares and the second portion is our shrinkage penalty with λ as a tuning parameter. The size of λ influences the complexity of the model. For large values of λ, you will pay the price for each large coefficient, leading you to a simple model whereas small values of λ means you can have large values of λ, leading you to more complex models. If λ is equal to zero, then there is no shrinkage penalty and we are left with least squares or in this case the first model. 
+
+  Similarly to linear regression, the data from the 2021-22 season was used to train and create the model which was then tested through use fo the 2018-19 season data. 
+
+In order to pick the optimal value of our tuning parameter λ, a 5-fold cross validation will be used. 
+
+```{r,out.width = "500px", fig.cap = "Figure 3: Ridge regression plot depicting the optimal value of λ"}
+X <- model.matrix(vote_percent ~ ., train[,c(6:8, 10:16)])
+Z <- model.matrix(vote_percent ~ ., test[,c(6:8, 10:16)])
+y <- train$vote_percent
+
+
+fit_ridge_cv <- cv.glmnet(X, y, alpha = 0,nfolds = 5) #using cross validation to find optimal value of lambda for the ridge
+
+plot(fit_ridge_cv)
+```
+
+```{r}
+best_lam_ridge<-fit_ridge_cv$lambda.min
+ridge.pred <- predict(fit_ridge_cv, s = best_lam_ridge , newx = Z)
+best_lam_ridge
+```
+
+From the output above, the optimal value of λ is determined to be 8.500802. This value will be the tuning parameter of the ridge regression shrinkage penalty which will be applied to our definition of least squares. 
+
+
+The test MSE for the ridge regression is presented in the out put below. 
+```{r}
+mean((ridge.pred - test$vote_percent)^2)
+```
+
+The output below states the coefficients of each predictor variable in the ridge regression model. 
+```{r}
+test$ridge <- ridge.pred
+arranged.ridge.pred <- arrange(test, desc(ridge))
+
+coef(fit_ridge_cv,s=best_lam_ridge)
+```
+
+```{r}
+kable_styling(kbl(head(arranged.ridge.pred), caption = "Table 4: Sample of the predicted order of players and their respective stats after ridge regression."))
+```
+
+   Key results from the ridge regression model produced a test MSE of 33.99761 and correctly identified the player who was awarded the Hart Memorial Trophy for the 2018-19 season, which was Nikita Kucherov. 
+
+  The ridge regression produced a larger test error than our original model yet appeared to have very similar placings. With the test error being greater for this model than our original, another technique was implemented with the goal of reducing the test MSE and improving the placings of the players. A more in depth analysis of the correctness of the rankings of the player will be done once our last refining technique has been done. 
+
+
+#### The Lasso
+  The third technique employed was the lasso (Least Absolute Shrinkage & Selection Operation). The drawback with using ridge regression is that all p predictors, which is 9 in this case, will be included in the final model. Lasso coefficients, $\hat{\beta^L}$, minimize $$\sum_{i=1}^n(Y_i - \beta_0 - \sum_{j=1}^p\beta_jX_{ij})^2 + \lambda\sum_{j=1}^p|\beta_j|$$
+where the first portion of the equation is our definition of least squares and the second portion is our shrinkage penalty with λ as a tuning parameter. The size of λ influences the complexity of the model. For large values of λ, you will pay the price for each large coefficient, leading you to a simple model whereas small values of λ means you can have large values of λ, leading you to more complex models. If λ is equal to zero, then there is no shrinkage penalty and we are left with least squares. 
+
+  It's important to note that the equations corresponding to the lasso coefficients and the ridge coefficients are almost identical. Both equations include our definition of least squares because that is how our linear regression coefficients are defined, and these two techniques are aimed to improve our regression. Both equations apply a shrinkage penalty to the definition of least squares, however how they are defined differs. 
+
+Ridge regression minimize $\beta$ RSS subject to $\sum_{j}\beta_j^2 \leq S$. 
+The lasso minimize $\beta$ RSS subject to $\sum_{j}|\beta_j| \leq S$.
+
+  While both parameters are applied to shrink the value of the $\beta_j$ coefficients, in the case of the lasso, the penalty has the ability to force some of the coefficients to exactly equal zero. Ridge regression does not have the ability to make coefficients equal to exactly zero, it can only make coefficients very close to zero. 
+
+  To determine the optimal value of λ for the lasso technique, a 5-fold cross validation will be used. Also the model was trained and then tested using the respective data as stated earlier. 
+
+```{r, out.width = "500px", fig.cap = "Figure 4: Lasso plot depicting the optimal value of λ"}
+fit_lasso_cv <- cv.glmnet(X, y, alpha = 1,nfolds = 5) #using cross validation to determine the optimal value of lambda for the lasso 
+plot(fit_lasso_cv)
+```
+
+```{r}
+best_lam_lasso<-fit_lasso_cv$lambda.min
+lasso.pred <- predict(fit_lasso_cv, s = best_lam_lasso , newx = Z)
+best_lam_lasso
+```
+
+The optimal value of λ is determined to be 0.3200497. This value will be the tuning parameter of the lasso shrinkage penalty which will be applied to our definition of least squares.
+
+```{r}
+test$lasso <- lasso.pred
+arranged.lasso.pred <- arrange(test, desc(lasso))
+```
+
+The test MSE of the lasso model is shown in the following output.
+```{r}
+mean((lasso.pred - test$vote_percent)^2)
+```
+
+This output shows the predictor variables kept in the model and their respective coefficients
+```{r}
+coef(fit_lasso_cv,s=best_lam_lasso) #this gives the coefficients for each of the predictor variables 
+```
+
+It's seen that when the lasso technique is used, all but two predictor coefficients are forced to equal exactly zero. The two predictor variables that the lasso deemed as significant in making predictions towards our objective are *PS* and *OPS*.  
+
+```{r}
+kable_styling(kbl(head(arranged.lasso.pred), caption = "Table 5: Sample of the predicted order of players and their respective stats after the lasso technique."))
+```
+
+   Key results from the lasso produced a test MSE of 33.47676 and correctly identified the player who was awarded the Hart Memorial Trophy for the 2018-19 season, which was Nikita Kucherov. 
+  
+
+  Once again, our refined method produced a test MSE greater than our original linear model did. To determine if the linear model was the best, one more refining technique will be used and a deeper analysis into the rankings of the top 10 players will be done. 
+
+
+##### Subset Selection
+  The fourth and final technique employed was subset selection. This technique begins with the idea of starting with a large amount of predictors and then see how many can be "thrown out" while still having a good fitting model. We must consider the bias-variance trade-of, if too many variables are removed, there is risk of throwing out which predictors are important for explaining the response (bias). However, if too many variables are kept, there is risk of over fitting and having too much variability in the variables (variance). 
+
+  In subset selection, let k denote the number of variables used in a model, k ε (0, 1,, ..., p). Large values of k indicate that the model will complex and small values of k indicate that the model will be simple. The goal of subset selection is that for each k, we will choose a single regression model from the $p \choose k$ possible models. Best subset regression finds for each k ε (0, 1,, ..., p) the subset of size k which give the smallest residual sum of squares. 
+
+To ensure valid comparisons, the training and testing data are unchanged from the previous three models. 
+
+```{r}
+regfit.full <- regsubsets(vote_percent ~ ., train[,c(6:8, 10:16)],nvmax = 9)
+summary(regfit.full)
+
+reg.summary <- summary(regfit.full)
+```
+
+The above table indicates which predictor variables should be used for that particular value of k predictors. For example, should only 4 predictors be used in the model, the above table indicates that the four variables should be: *G*, *A*, *PS*, *DPS*. 
+
+```{r}
+regfit.best <- regsubsets(vote_percent ~ ., data = train[,c(6:8, 10:16)], nvmax = 9)
+test.mat <- model.matrix(vote_percent ~ ., data = test[,c(6:8, 10:16)])
+```
+
+```{r}
+val.errors <- rep(NA, 9)
+for (i in 1:9) {
+  coefi <- coef(regfit.best, id = i)
+  pred <- test.mat[, names(coefi)] %*% coefi
+  val.errors[i] <- mean((test$vote_percent - pred)^2)
+}
+```
+
+```{r, out.width = "500px", fig.cap = "Figure 5: A plot of the number of predictors and their corresponding test MSE. Optimal number of predictors = 7."}
+# PLOT TELLING NUMBER OF PREDICTORS THAT GIVES LOWEST MSE 
+ggplot(mapping= aes(x=c(1:9), y=val.errors)) + 
+  geom_line(color="blue")+
+  geom_point(color="black")+
+  scale_x_continuous(breaks=c(1,3,5,7))+
+  xlab("Number of Predictors")+
+  ylab("Test Error")+
+  theme_bw()
+```
+
+This plot tells us that our model will have the smallest test error when only seven predictor of the nine predictor variables are used. 
+
+These values indicate which of the seven predictor variables are deemed to be the most significant. 
+```{r}
+coef(regfit.full, 7)
+```
+
+```{r}
+best.sub.model <- lm(vote_percent ~ G + A + plus_minus + PS + TOI + OPS + DPS, data = test[,c(6:8, 10:16)])
+summary(best.sub.model)
+```
+
+The above summary indicates the seven variables considered. According to subset selection, games played, *GP*, and the amount of penalties in minutes, *PIM*, are the two variables "thrown out" in order to produce the most simple, yet still adequate model. 
+
+```{r}
+best.sub.model.predict <- predict(best.sub.model, test[,c(6:8, 10:16)])
+test$sub.pred <- best.sub.model.predict
+arranged.sub.pred <- arrange(test, desc(sub.pred))
+```
+
+Subset selection has a test MSE of the following output. 
+```{r}
+mean((test$vote_percent - best.sub.model.predict)^2)
+```
+
+```{r}
+kable_styling(kbl(head(arranged.sub.pred,10), caption = "Table 6:Sample of the predicted order of players and their respective stats after subset selection."))
+```
+
+   Key results from subset selection are that it produced a test MSE of 31.78458 when only seven predictor variables were used. The plot created indicated that seven predictor variables would produce the lowest test MSE which was proved to be correct. Through subset selection, the correct player, Nikita Kucherov, was predicted to win the award. 
+
+  Subset selection produced the smallest test error of the four models created, however it was shocking to see that both ridge regression and the lasso produced greater test errors than the original linear model. Additionally, each technique employed to predict the 2018-19 season Hart Memorial Trophy recipient predicted the correct player, Nikita Kucherov. The best model appears to be subset selection, however I decided to broaden the objective and investigate the top ten players predicted to win to explore what was happening within the ridge regression and lasso results. The main focus of this analysis was to see which of the models had correctly included the most players who had been in the true top ten players to receive votes. Loosely considered was whether or not the model ranked the player correctly within the top ten. 
+
+#### Comparison Between the True Top 10 and the Linear Regression Predicted Top 10 
+To begin, the predicted top 10 placings from the linear model were compared to the true top 10 placings. 
+```{r}
+hart_table_ranks <- read_excel("hart_data_ranks19.xlsx")
+
+names(hart_table_ranks)[1] <- "Actual_Place"
+
+
+linear_results <- full_join(arranged.linear.pred, hart_table_ranks[,c(1,2)])
+
+
+Predicted_Place <- as.character(c(1,2,3,4,5,6,7,8,9,10))
+linear_pred_vs_act <- data_frame(Predicted_Place, (linear_results[c(1:10),c(2,16,18)]))
+
+kable_styling(kbl(head(linear_pred_vs_act,10), caption = "Table 7: Predicted top 10 players using linear regression versus their actual ranking in the list of players who received votes."))
+```
+
+Through table 7 it's seen that linear regression correctly included 5 players who placed in the true top 10.
+
+#### Comparison Between the True Top 10 and the Ridge Regression Predicted Top 10 
+Next, the predicted top 10 from ridge regression were compared with the true top 10 placings. 
+```{r}
+ridge_results <- full_join(arranged.ridge.pred, hart_table_ranks[,c(1,2)])
+
+ridge_pred_vs_act <- data_frame(Predicted_Place, (ridge_results[c(1:10),c(2,16,19)]))
+
+kable_styling(kbl(head(ridge_pred_vs_act,10), caption = "Table 8: Predicted top 10 players using ridge regression versus their actual ranking in the list of players who received votes."))
+```
+
+From table 8, it's determined that ridge regression correctly included 6 players who placed in the true top 10  
+
+#### Comparison Between the True Top 10 and the Lasso Predicted Top 10 
+Thirdly, the predicted top 10 from the lasso were compared with the true top 10 placings. 
+```{r}
+lasso_results <- full_join(arranged.lasso.pred, hart_table_ranks[,c(1,2)])
+
+lasso_pred_vs_act <- data_frame(Predicted_Place, (lasso_results[c(1:10),c(2,16,20)]))
+
+kable_styling(kbl(head(lasso_pred_vs_act,10), caption = "Table 9: Predicted top 10 players using the lasso versus their actual ranking in the list of players who received votes."))
+```
+
+Table 9 shows that the lasso technique correctly included 6 players who placed in the true top 10
+
+#### Comparison Between the True Top 10 and the Subset Selection Predicted Top 10 
+Lastly, the predicted top 10 from subset selection were compared with the true top 10 placings. 
+```{r}
+sub_results <- full_join(arranged.sub.pred, hart_table_ranks[,c(1,2)])
+
+sub_pred_vs_act <- data_frame(Predicted_Place, (sub_results[c(1:10),c(2,16,21)]))
+
+kable_styling(kbl(head(sub_pred_vs_act,10), caption = "Table 10: Predicted top 10 players using subset selection versus their actual ranking in the list of players who received votes."))
+```
+
+Table 10 indicates that subset selection correctly included 7 players who placed in the true top 10, it correctly assigned Brad Marchand and Patrick Kane's their true placings, and correctly predicted the players that made the true top 3. 
+
+  Tables 7 through 10 display the predicted top 10 players that are likely to win the Hart Memorial Trophy for each of the four models tested. Through this analysis it's determined that subset selection was the best model as it had correctly identified the Hart Memorial Trophy recipient, it had included the most correct top ten players in the predicted top 10, and furthermore it had correctly matched three players with their actual placing within the top 10. This model also correctly identified the players who made the top 3, however it did not list the players in the correct order - the model switched the players in second and third place. 
+
+
+## Discussion
+  Shockingly, despite the test errors that resulted from the ridge regression model and the lasso model, both models had correctly included 6 players who placed in the true top 10 whereas the linear regression correctly included only 5 players. Future studies could investigate this result further as it was quite unexpected, generally lasso and ridge regression produce smaller test MSE than linear regression. 
+
+  Another shocking result was the number of variables kept in the lasso model. Using this refining technique it deemed only two predictor variables to be significant and forced the coefficients of the seven remainung variables to be zero. I had expected there to be more than two predictors to be determined as significant. 
+
+  An interesting finding from the analysis was that each of the models had predicted at least one player who did not receive any votes to place in the top 10. This acknowledges that more than a player's stats are taken into consideration when it's time for the appointed voters make their choice on who they believe deserves the title of most valuable player at the end of the regular season. A player who has a good standing in the league will not necessarily earn any votes as other factors such as a player's versatility, leadership skills, and endurance can also be considered (“The Five Traits of an MVP,” n.d.). An MVP should be adaptable and resourceful, display leadership skills like determination and constantly looking for ways to improve one's skills, and lastly when a player has endurance it shows that they really believe their goals are important, that they're committed and ready to put in the work it will take to achieve their goal. All of these factors are not something that can be measured according to a certain scale as player's who possess these characteristics do not all display them in the same way. 
+
+  Limitations on the results of this study can once again relate back to the inability to measure a player's demeanor in their sport. Future studies done on this topic could consider creating a scale that measures the positive attention a player receives in the media as these players mentioned tend to consistently display the characteristics of an MVP described above. This attention could be about the player's display in leadership and support towards their team or their community. Another limitation to this study is that only a small selection of players will receive votes, this leads to an imbalance within the data. Additionally, players' advanced statistics were not taken into consideration in this study as to reduce the number of predictor variables, so future work could possibly explore the impact this data has on the results. Different models that can be explored include logistic regression or random forest, there was an analysis similar to this that aimed to predict the MVP in the National Basketball Association (NBA) in which a logistic regression approach was taken (Yoo, 2023). This NBA analysis had included 42 years worth of data to try to account for the imbalance that stems from the issue of only a select few players receiving votes. 
+
+
+## Conclusion
+
+  To conclude, this analysis explored the ability to predict a hockey player's chances of winning the Hart Memorial Trophy, which goes to the most valuable player at the end of the regular season. The recipient of this award is voted for by a group of voters appointed by the Professional Hockey Writers Association meaning the results of the poll are subjective as there is no scale that measures MVP. Four regression models were used in this study, linear, ridge, lasso, and subset selection. Each model correctly identified the recipient of the award for the 2018-19 regular season, through use of a model created using data from the 2021-22 regular season. Additional analysis of the predicted top 10 placings was done, with each model correctly including at least five players in the top 10. It was determined through this analysis that subset selection was the best model as it had correctly identified the recipient, and had correctly included 7 players in the top ten, with 3 of those players being given their correct placing. Furthermore, the model created through subset selection correctly identified the top 3 contenders, although the order of second and third was incorrect. 
+
+## References
+
+About the PHWA – Professional Hockey Writers Association. (n.d.). Retrieved March 25, 2023, from https://www.thephwa.com/about-the-phwa/
+
+Every number has a story, some that will surprise you. (n.d.). NHL.Com. Retrieved March 25, 2023, from https://www.nhl.com/news/every-number-has-a-story-some-that-will-surprise-you/c-457713
+
+Fitzsimmons, L. (n.d.). Updated 2023 Hart Trophy Rankings as the NHL’s MVP. Bleacher Report. Retrieved March 25, 2023, from https://bleacherreport.com/articles/10060359-updated-2023-hart-trophy-rankings-as-the-nhls-mvp
+
+HHOF - Hart Memorial Trophy. (n.d.). Retrieved March 25, 2023, from https://www.hhof.com/thecollection/hartmemorialtrophy.html
+
+NHL Hart Memorial Trophy Winners. (n.d.). Retrieved March 25, 2023, from https://www.nhl.com/news/nhl-hart-memorial-trophy-winners-complete-list/c-287743272
+
+NHL Stats, History, Scores, Standings, Playoffs, Schedule & Records | Hockey-Reference.com. (n.d.). Retrieved March 25, 2023, from https://www.hockey-reference.com/
+
+PHWA publishes 2022 NHL Awards ballots – Professional Hockey Writers Association. (2022, June 22). https://www.thephwa.com/2022/06/22/phwa-publishes-2022-nhl-awards-ballots/
+
+The Five Traits of an MVP: How All-Stars Maximize Their Value. (n.d.). Monitordaily. Retrieved March 26, 2023, from https://www.monitordaily.com/article-posts/five-traits-mvp-stars-maximize-value/
+
+Yoo, D. (2023, February 20). Predicting the next NBA MVP using Machine Learning. Medium. https://toward
+
+
+***
